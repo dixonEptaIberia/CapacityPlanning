@@ -1,0 +1,23 @@
+version: 1
+# Monorepo config: the frontend lives in ./frontend.
+# Amplify Hosting builds and serves the Vite SPA. The FastAPI backend is
+# deployed separately (e.g. AWS App Runner) and reached via the /api rewrite
+# configured in the Amplify console (Hosting -> Rewrites and redirects).
+applications:
+  - appRoot: frontend
+    frontend:
+      phases:
+        preBuild:
+          commands:
+            - npm ci
+        build:
+          commands:
+            - npm run build
+      artifacts:
+        # Vite outputs to dist/
+        baseDirectory: dist
+        files:
+          - '**/*'
+      cache:
+        paths:
+          - node_modules/**/*

@@ -1,0 +1,27 @@
+# QA deployment: nginx-served SPA + FastAPI backend, talking to an external
+# RDS PostgreSQL instance. Intended to run on a single EC2 host.
+#
+# Copy deploy/.env.example to .env, fill in the RDS endpoint/credentials, then:
+#   docker compose up -d --build
+#
+# The frontend is published on port 80; the backend is internal only and is
+# reached through nginx at /api (so the API is never exposed directly).
+
+services:
+  backend:
+    build: ./backend
+    env_file: .env
+    environment:
+      # DATABASE_URL, CORS_ORIGINS, AUTH_MODE come from .env.
+      AUTH_MODE: ${AUTH_MODE:-dev}
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  web:
+    build: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+    restart: unless-stopped
