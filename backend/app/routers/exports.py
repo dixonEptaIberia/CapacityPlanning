@@ -13,20 +13,20 @@ from fastapi.responses import StreamingResponse
 from openpyxl import Workbook
 
 from sqlalchemy import select
+from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user, require_edit
 from app.core.errors import NotFoundError
 from app.db.base import get_db
-from app.domain import weeks
-from app.models import PlanVersion, ProductLine, User, WeekCellSnapshot
-from app.services import planning
+from app.models import PlanVersion, Plant, User, WeekCellSnapshot
+from app.services import planning, serializers
 
 router = APIRouter(tags=["exports"])
 
 _XLSX_MEDIA = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
-def _grid_rows_for_export(db, plant, week_labels):
+def _grid_rows_for_export(db: Session, plant: Plant, week_labels: list[str]):
     """Yield flat rows (plant, line, week, cadence, workers, expected, actual)."""
     special_rules = planning.active_special_rules(db)
     full_week_days = plant.standard_working_days
@@ -55,13 +55,12 @@ def export_compass(
     plant_id: int,
     start_week: str | None = Query(default=None),
     weeks_count: int = Query(default=8, ge=1, le=52),
-    db=Depends(get_db),
+    db: Session = Depends(get_db),
     _: User = Depends(require_edit),
 ):
     """Generate a Compass-import spreadsheet of approved cadence updates (R10.2)."""
     plant = planning.get_plant_or_404(db, plant_id)
-    start = start_week or planning.current_week_label()
-    week_labels = weeks.week_range(start, weeks_count)
+    week_labels = planning.resolve_week_labels(start_week, weeks_count)
 
     wb = Workbook()
     ws = wb.active
@@ -95,7 +94,7 @@ def export_compass(
     buf = io.BytesIO()
     wb.save(buf)
     buf.seek(0)
-    filename = f"compass_{plant.name}_{start}.xlsx"
+    filename = f"compass_{plant.name}_{week_labels[0]}.xlsx"
     return StreamingResponse(
         buf,
         media_type=_XLSX_MEDIA,
@@ -106,7 +105,7 @@ def export_compass(
 @router.get("/versions/{version_id}/export.xlsx")
 def export_official_version(
     version_id: int,
-    db=Depends(get_db),
+    db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     """Export a saved (official) version as a tabular .xlsx (R7.5, R10).
@@ -126,10 +125,7 @@ def export_official_version(
         .order_by(WeekCellSnapshot.product_line_id, WeekCellSnapshot.iso_year_week)
     ).all()
 
-    line_names = {
-        line.id: line.name
-        for line in db.scalars(select(ProductLine)).all()
-    }
+    line_names = serializers.line_name_map(db)
 
     wb = Workbook()
     ws = wb.active
@@ -176,13 +172,12 @@ def report_clicksense(
     plant_id: int,
     start_week: str | None = Query(default=None),
     weeks_count: int = Query(default=8, ge=1, le=52),
-    db=Depends(get_db),
+    db: Session = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     """Return flat, structured rows for Click Sense / Qlik Sense analysis (R10.1)."""
     plant = planning.get_plant_or_404(db, plant_id)
-    start = start_week or planning.current_week_label()
-    week_labels = weeks.week_range(start, weeks_count)
+    week_labels = planning.resolve_week_labels(start_week, weeks_count)
     rows = list(_grid_rows_for_export(db, plant, week_labels))
     db.commit()
     return {"rows": rows}

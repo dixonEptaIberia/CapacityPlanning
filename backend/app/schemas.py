@@ -388,13 +388,3 @@ class TransferOut(BaseModel):
     created_at: datetime
     # Human-facing reminder surfaced whenever the transfer is not yet agreed (R8.3).
     requires_sales_agreement: bool = True
-
-
-class ErrorBody(BaseModel):
-    code: str
-    message: str
-    correlation_id: str
-
-
-class ErrorResponse(BaseModel):
-    error: ErrorBody

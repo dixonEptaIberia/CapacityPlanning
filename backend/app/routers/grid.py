@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.auth import check_plant_scope, get_current_user, require_edit
+from app.core.errors import NotFoundError
 from app.db.base import get_db
 from app.domain import weeks
 from app.models import User
@@ -19,26 +20,12 @@ from app.schemas import (
     KpiDashboardResponse,
     KpiValue,
     PlantOut,
-    ProductLineOut,
     WeekTotals,
     WorkforceStatus,
 )
-from app.services import planning
+from app.services import planning, serializers
 
 router = APIRouter(tags=["grid"])
-
-
-def _line_out(line) -> ProductLineOut:
-    return ProductLineOut(
-        id=line.id,
-        plant_id=line.plant_id,
-        name=line.name,
-        product_family=line.product_family,
-        routing_info=line.routing_info,
-        sap_work_center=line.sap_work_center,
-        platforms=[p.name for p in line.platforms],
-        hypothetical=line.hypothetical,
-    )
 
 
 def _cell_out(
@@ -85,8 +72,7 @@ def get_grid(
 ):
     """Return the spreadsheet-like grid: lines as rows, weeks as columns (R1.1)."""
     plant = planning.get_plant_or_404(db, plant_id)
-    start = start_week or planning.current_week_label()
-    week_labels = weeks.week_range(start, weeks_count)
+    week_labels = planning.resolve_week_labels(start_week, weeks_count)
 
     special_rules = planning.active_special_rules(db)
     full_week_days = plant.standard_working_days
@@ -99,7 +85,7 @@ def get_grid(
             _cell_out(db, line.id, w, plant.frozen_weeks, special_rules, full_week_days, master_map)
             for w in week_labels
         ]
-        rows.append(GridRow(line=_line_out(line), cells=cells))
+        rows.append(GridRow(line=serializers.product_line_out(line), cells=cells))
 
     # Per-week totals across the plant's official lines (the sheet's bottom row).
     totals: list[WeekTotals] = []
@@ -155,8 +141,6 @@ def update_cell(
     check_plant_scope(user, plant)
     line = next((line for line in plant.product_lines if line.id == line_id), None)
     if line is None:
-        from app.core.errors import NotFoundError
-
         raise NotFoundError(f"Line {line_id} not found in plant {plant_id}.")
 
     # Distinguish "clear cadence" (explicit null) from "not provided".
@@ -199,8 +183,7 @@ def get_kpis(
     fields can be added without code changes.
     """
     plant = planning.get_plant_or_404(db, plant_id)
-    start = start_week or planning.current_week_label()
-    week_labels = weeks.week_range(start, weeks_count)
+    week_labels = planning.resolve_week_labels(start_week, weeks_count)
     values = planning.evaluate_kpis(db, plant, week_labels)
     db.commit()
     return KpiDashboardResponse(

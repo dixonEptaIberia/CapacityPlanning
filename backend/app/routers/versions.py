@@ -9,8 +9,10 @@ from app.core.auth import get_current_user, require_edit, require_role
 from app.core.errors import NotFoundError
 from app.db.base import get_db
 from app.models import (
+    ChangeStatus,
     PlanVersion,
     RoleName,
+    Scenario,
     User,
     VersionKind,
     WeekCell,
@@ -24,7 +26,7 @@ from app.schemas import (
     VersionOut,
     VersionSnapshotResponse,
 )
-from app.services import planning
+from app.services import planning, serializers
 
 router = APIRouter(tags=["versions"])
 
@@ -96,8 +98,6 @@ def _applied_keys(db: Session) -> set[tuple[int, str]]:
 
     Everything else that differs from the base is a proposal (a hypothesis).
     """
-    from app.models import Scenario
-
     promoted_ids = db.scalars(select(Scenario.id).where(Scenario.promoted.is_(True))).all()
     if not promoted_ids:
         return set()
@@ -108,8 +108,6 @@ def _applied_keys(db: Session) -> set[tuple[int, str]]:
 
 
 def _diff_against_version(db: Session, base_version: PlanVersion) -> list[DiffCell]:
-    from app.models import ChangeStatus
-
     snapshots = db.scalars(
         select(WeekCellSnapshot).where(WeekCellSnapshot.version_id == base_version.id)
     ).all()
@@ -203,11 +201,7 @@ def version_snapshot(
         .where(WeekCellSnapshot.version_id == version_id)
         .order_by(WeekCellSnapshot.product_line_id, WeekCellSnapshot.iso_year_week)
     ).all()
-    from app.models import ProductLine
-
-    line_names = {
-        line.id: line.name for line in db.scalars(select(ProductLine)).all()
-    }
+    line_names = serializers.line_name_map(db)
     out_rows: list[SnapshotRow] = []
     for r in rows:
         row = SnapshotRow.model_validate(r)

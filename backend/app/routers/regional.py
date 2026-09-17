@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 from app.core.auth import get_current_user
 from app.core.errors import NotFoundError
 from app.db.base import get_db
-from app.domain import weeks
 from app.models import Platform, User
 from app.schemas import PlatformAggregateRow, RegionalResponse
 from app.services import planning
@@ -29,8 +28,7 @@ def regional_grid(
     if plat is None:
         raise NotFoundError(f"Platform '{platform}' not found.")
 
-    start = start_week or planning.current_week_label()
-    week_labels = weeks.week_range(start, weeks_count)
+    week_labels = planning.resolve_week_labels(start_week, weeks_count)
 
     special_rules = planning.active_special_rules(db)
     rows: list[PlatformAggregateRow] = []

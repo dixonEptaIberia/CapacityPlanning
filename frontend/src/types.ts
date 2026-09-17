@@ -124,15 +124,3 @@ export interface VersionSnapshotResponse {
   rows: SnapshotRow[];
   takt_label: string;
 }
-
-// --- Linked lines / Linee_Collegate --------------------------------------
-
-export interface LineLink {
-  id: number;
-  plant_id: number;
-  master_line_id: number;
-  slave_line_id: number;
-  master_line_name: string | null;
-  slave_line_name: string | null;
-  ratio: number;
-}

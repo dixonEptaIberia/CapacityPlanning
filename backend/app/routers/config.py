@@ -10,18 +10,21 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.auth import get_current_user, require_role
-from app.core.errors import NotFoundError
+from app.core.errors import AppError, NotFoundError
 from app.db.base import get_db
+from app.domain import rules
 from app.models import (
     Company,
     ConfigEntry,
     KpiDefinition,
     LineLink,
+    Note,
     Plant,
     ProductLine,
     RoleName,
     RuleDefinition,
     User,
+    WeekCell,
 )
 from app.schemas import (
     CompanyIn,
@@ -39,6 +42,7 @@ from app.schemas import (
     RuleDefinitionOut,
     UserOut,
 )
+from app.services import serializers
 
 router = APIRouter(tags=["config"])
 
@@ -114,16 +118,7 @@ def add_line(
     db.add(line)
     db.commit()
     db.refresh(line)
-    return ProductLineOut(
-        id=line.id,
-        plant_id=line.plant_id,
-        name=line.name,
-        product_family=line.product_family,
-        routing_info=line.routing_info,
-        sap_work_center=line.sap_work_center,
-        platforms=[],
-        hypothetical=line.hypothetical,
-    )
+    return serializers.product_line_out(line)
 
 
 @router.post("/config/companies", response_model=CompanyOut, status_code=201)
@@ -156,15 +151,7 @@ def move_line(
     line.plant_id = payload.plant_id
     db.commit()
     db.refresh(line)
-    return ProductLineOut(
-        id=line.id,
-        plant_id=line.plant_id,
-        name=line.name,
-        product_family=line.product_family,
-        routing_info=line.routing_info,
-        sap_work_center=line.sap_work_center,
-        platforms=[p.name for p in line.platforms],
-    )
+    return serializers.product_line_out(line)
 
 
 @router.delete("/config/lines/{line_id}", status_code=204)
@@ -178,8 +165,6 @@ def remove_line(
     Deletes the line's week cells (and their notes) and any line links first so
     the single central dataset stays consistent.
     """
-    from app.models import LineLink, Note, WeekCell
-
     line = db.get(ProductLine, line_id)
     if line is None:
         raise NotFoundError(f"Line {line_id} not found.")
@@ -257,9 +242,6 @@ def add_kpi(
     _: User = Depends(require_role(RoleName.central_admin)),
 ):
     """Add a dashboard field / KPI through configuration (R13.3)."""
-    from app.core.errors import AppError
-    from app.domain import rules
-
     if payload.source_field not in rules.KPI_SOURCE_FIELDS:
         raise AppError(
             f"Unknown KPI source field '{payload.source_field}'. "
@@ -342,8 +324,6 @@ def add_line_link(
     Requires the plant, master line, and slave line. Both lines must belong to
     the given plant and be distinct.
     """
-    from app.core.errors import AppError
-
     if payload.master_line_id == payload.slave_line_id:
         raise AppError(
             "Master and Slave lines must be different.", code="invalid_line_link"

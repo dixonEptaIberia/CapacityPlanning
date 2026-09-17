@@ -9,6 +9,7 @@ from app.core.auth import get_current_user
 from app.db.base import get_db
 from app.models import CadenceOption, Plant, ProductLine, User
 from app.schemas import CadenceOptionOut, PlantOut, ProductLineOut
+from app.services import serializers
 
 router = APIRouter(tags=["plants"])
 
@@ -41,19 +42,7 @@ def list_lines(
     if not include_hypothetical:
         stmt = stmt.where(ProductLine.hypothetical.is_(False))
     lines = db.scalars(stmt.order_by(ProductLine.name)).all()
-    return [
-        ProductLineOut(
-            id=line.id,
-            plant_id=line.plant_id,
-            name=line.name,
-            product_family=line.product_family,
-            routing_info=line.routing_info,
-            sap_work_center=line.sap_work_center,
-            platforms=[p.name for p in line.platforms],
-            hypothetical=line.hypothetical,
-        )
-        for line in lines
-    ]
+    return [serializers.product_line_out(line) for line in lines]
 
 
 @router.get("/cadence-options", response_model=list[CadenceOptionOut])

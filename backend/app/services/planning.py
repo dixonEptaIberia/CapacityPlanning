@@ -5,6 +5,7 @@ linked-line rules), workforce evaluation, and regional aggregation.
 """
 from __future__ import annotations
 
+import json
 from datetime import date
 
 from sqlalchemy import select
@@ -16,12 +17,14 @@ from app.domain.rules import CadenceCombo, CellInput
 from app.models import (
     CadenceOption,
     ConfigEntry,
+    KpiDefinition,
     LineLink,
     Note,
     Plant,
     ProductLine,
     RuleDefinition,
     WeekCell,
+    WeekCellSnapshot,
     WorkforceTarget,
 )
 
@@ -34,6 +37,15 @@ DEFAULT_TAKT_LABEL = "Takt"
 def current_week_label() -> str:
     """The current ISO week; overridable in tests via monkeypatch."""
     return weeks.iso_week_label(date.today())
+
+
+def resolve_week_labels(start_week: str | None, weeks_count: int) -> list[str]:
+    """Return the list of ISO week labels for a grid/report window.
+
+    Falls back to the current week when ``start_week`` is not provided.
+    """
+    start = start_week or current_week_label()
+    return weeks.week_range(start, weeks_count)
 
 
 def get_config_value(db: Session, key: str, default: str) -> str:
@@ -92,8 +104,6 @@ def get_or_create_cell(db: Session, line_id: int, week: str) -> WeekCell:
 
 def active_special_rules(db: Session) -> list[rules.SpecialRule]:
     """Load active configurable special rules from the RuleDefinition table (R4.2, R13.2)."""
-    import json
-
     defs = db.scalars(
         select(RuleDefinition).where(RuleDefinition.active.is_(True)).order_by(RuleDefinition.id)
     ).all()
@@ -275,8 +285,6 @@ def evaluate_kpis(db: Session, plant: Plant, week_labels: list[str]) -> list[dic
     KPIs are defined through configuration (KpiDefinition). Hypothetical/sandbox
     lines are excluded so KPIs reflect official data only (R15.2).
     """
-    from app.models import KpiDefinition
-
     kpis = db.scalars(
         select(KpiDefinition).where(KpiDefinition.active.is_(True)).order_by(KpiDefinition.id)
     ).all()
@@ -327,8 +335,6 @@ def snapshot_cells(
     If ``plant_id`` is given, only that plant's lines are captured. Returns the
     number of snapshots created.
     """
-    from app.models import WeekCellSnapshot
-
     line_ids: list[int] | None = None
     if plant_id is not None:
         plant = get_plant_or_404(db, plant_id)
